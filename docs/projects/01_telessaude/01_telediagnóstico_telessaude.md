@@ -81,9 +81,9 @@ Diferente de esquemas estrela isolados que geram duplicidade dimensional, a cama
            / (cd_atendimento_oftalmo)
 [Dim_Oftalmologia_Clinica]
 ```
-<!-- DIAGRAMA DA MODELAGEM DE DADOS -->
+<!-- Diagrama da Modelagem -->
 <p align="center">
-  <img src="docs/projects/01_telessaude/constellation_data_model.png" alt="Modelo Fact Constellation - Camada Gold" width="900">
+  <img src="./constellation_data_model.png" alt="Modelo Fact Constellation - Camada Gold" width="900">
   <br>
   <em>Figura 2: Arquitetura dimensional Fact Constellation: integração de tabelas fato multi-granulares e dimensões clínicas especializadas.</em>
 </p>
@@ -159,28 +159,28 @@ Abaixo está o detalhamento técnico que correlaciona cada desafio enfrentado co
 
 <!-- 1. Tela Geral / Executiva -->
 <p align="center">
-  <img src="docs/projects/01_telessaude/dashboard_telessaude.png" alt="Painel Executivo de Telediagnóstico - Visão Geral" width="900">
+  <img src="./dashboard_telessaude.png" alt="Painel Executivo de Telediagnóstico - Visão Geral" width="900">
   <br>
   <em>Figura 3.1: Visão Executiva — Monitoramento global de produção de exames, mapa de calor territorial e série temporal.</em>
 </p>
 
-<!-- 2. Tela Analítica 01: Tático e Estratégico -->
+<!-- 2. Tela Analítica 01 -->
 <p align="center">
-  <img src="docs/projects/01_telessaude/dashboard_telessaude_analítico.png" alt="Painel Analítico - Tático e Estratégico" width="900">
+  <img src="./dashboard_telessaude_analítico.png" alt="Painel Analítico - Tático e Estratégico" width="900">
   <br>
   <em>Figura 3.2: Visão Tático-Estratégica — Detalhamento por município, acompanhamento de metas de implantação e adesão regional.</em>
 </p>
 
 <!-- 3. Tela Analítica 02 -->
 <p align="center">
-  <img src="docs/projects/01_telessaude/dashboard_telessaude_analítico_02.png" alt="Painel Analítico - Clínico e Epidemiológico" width="900">
+  <img src="./dashboard_telessaude_analítico_02.png" alt="Painel Analítico - Clínico e Epidemiológico" width="900">
   <br>
   <em>Figura 3.3: Visão Clínico-Epidemiológica — Estratificação de laudos patológicos (oftalmo/dermato) e prioridades clínicas de atendimento.</em>
 </p>
 
 <!-- 4. Tela Analítica 03 -->
 <p align="center">
-  <img src="docs/projects/01_telessaude/dashboard_telessaude_analítico_03.png" alt="Painel Analítico - Operação e Absenteísmo" width="900">
+  <img src="./dashboard_telessaude_analítico_03.png" alt="Painel Analítico - Operação e Absenteísmo" width="900">
   <br>
   <em>Figura 3.4: Visão Operacional — Controle de absenteísmo em teleconsultas e auditoria de frescor dos dados por fornecedor.</em>
 </p>
