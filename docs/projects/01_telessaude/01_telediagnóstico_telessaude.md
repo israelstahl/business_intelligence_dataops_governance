@@ -149,7 +149,7 @@ Abaixo está o detalhamento técnico que correlaciona cada desafio enfrentado co
 ### Seção 11: Governança em Tempo de Execução (Auditoria de Fontes)
 * **Problema:** Gestores tomavam decisões sem visibilidade sobre quando os arquivos e APIs haviam sido atualizados pelos provedores externos.
 * **Solução:**
-  * Criação da tabela ilha desacoplada `Auditoria_Fontes_Dados` que captura via `FileTime()` o momento exato de processamento de cada modalidade, expondo o SLA e o frescor da informação (*Data Freshness*) diretamente na interface de visualização.
+  * Criação da tabela ilha desacoplada `Auditoria_Fontes_Dados` que captura via `FileTime()` o momento exato de processamento de cada modalidade, expondo o SLA e o status da ultiam carga da informação (*Data Freshness*) diretamente na interface de visualização.
 
 ---
 
