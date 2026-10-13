@@ -1,0 +1,122 @@
+# ==============================================================================
+# DATA CONTRACT: Dimensão Clínica Especializada em Teleoftalmologia
+# CAMADA: RAW -> TRUSTED (SILVER)
+# ==============================================================================
+
+metadata:
+  nome_projeto: "Plataforma de Telessaúde e Telediagnóstico Estadual"
+  codigo_issue: "ISSUE-TELS-03"
+  versao_contrato: "1.0.0"
+  status_documento: "Em Produção"
+  proprietario_negocio: "Superintendência de Saúde Digital"
+  analytics_governance_lead: "Israel Stahl"
+
+# ------------------------------------------------------------------------------
+# 1. MAPEAMENTO DE ORIGEM (RAW)
+# ------------------------------------------------------------------------------
+fontes_dados:
+  - id_fonte: "SRC_TELEOFTALMO_IMAGENS_LAUDOS"
+    sistema_origem: "Sistema de Captura de Imagens e Laudos Oftalmológicos"
+    objeto_raw: "oftalmologia_clinica_raw.parquet"
+    caminho_raw: "${LAKEHOUSE_RAW_PATH}/telessaude"
+    formato_original: "Parquet"
+    frequencia_carga: "Semanal"
+
+# ------------------------------------------------------------------------------
+# 2. MODELAGEM DESTINO (TRUSTED / SILVER)
+# ------------------------------------------------------------------------------
+modelo_destino:
+  camada: "SILVER_TRUSTED"
+  nome_tabela: "dim_oftalmologia_clinica_trusted"
+  tipo_tabela: "Dimensao"
+  formato_saida: "Parquet"
+  caminho_trusted: "${LAKEHOUSE_SILVER_PATH}/telessaude"
+
+  chaves_relacionamento:
+    - nome_chave: "cd_atendimento_oftalmo"
+      tipo_chave: "Primary Key"
+      componentes: ["cd_atendimento_oftalmo"]
+      descricao: "Chave que liga o laudo à fato_producao_exames_trusted."
+    - nome_chave: "sk_estabelecimento_cnes"
+      tipo_chave: "Foreign Key Estabelecimento"
+      componentes: ["oftalmo_estabelecimento_cnes"]
+      descricao: "Chave sintética com prefixo de UF para integração cadastral."
+
+# ------------------------------------------------------------------------------
+# 3. ESQUEMA, TIPAGEM E DATA QUALITY RULES
+# ------------------------------------------------------------------------------
+esquema_colunas:
+  - coluna_destino: "cd_atendimento_oftalmo"
+    tipo_dado: "String"
+    descricao: "Identificador do exame no laudo clínico."
+    regras_validacao:
+      obrigatorio_not_null: true
+
+  - coluna_destino: "oftalmo_estabelecimento_cnes"
+    tipo_dado: "String"
+    descricao: "CNES da unidade de atendimento oftalmológico."
+    regras_validacao:
+      obrigatorio_not_null: true
+      formato_regex: "^[0-9]{7}$"
+      regra_analitica_consumo: "Excluir a unidade central de telelaudo nas consultas de produção descentralizada via Set Analysis: oftalmo_estabelecimento_cnes = {'*'} - {'0000000'}."
+
+  - coluna_destino: "sk_estabelecimento_cnes"
+    tipo_dado: "String"
+    descricao: "Chave dimensional de estabelecimento com UF ('UF|' + CNES)."
+    regras_validacao:
+      obrigatorio_not_null: true
+
+  - coluna_destino: "ds_achado_catarata"
+    tipo_dado: "String"
+    descricao: "Classificação diagnóstica para triagem de catarata."
+    regras_validacao:
+      obrigatorio_not_null: false
+      valores_permitidos:
+        - "Sem Alteração"
+        - "Catarata Incipiente"
+        - "Catarata Madura"
+        - "Inconclusivo"
+
+  - coluna_destino: "ds_achado_glaucoma"
+    tipo_dado: "String"
+    descricao: "Avaliação estrutural da escavação papilar para suspeita de glaucoma."
+    regras_validacao:
+      obrigatorio_not_null: false
+      valores_permitidos:
+        - "Papila Normal"
+        - "Suspeita de Glaucoma (Escavação Aumentada)"
+        - "Glaucoma Confirmado"
+        - "Inconclusivo"
+
+  - coluna_destino: "ds_achado_retinopatia"
+    tipo_dado: "String"
+    descricao: "Estratificação de retinopatia (diabética/hipertensiva)."
+    regras_validacao:
+      obrigatorio_not_null: false
+      valores_permitidos:
+        - "Sem Retinopatia"
+        - "Retinopatia Não Proliferativa Leve"
+        - "Retinopatia Não Proliferativa Moderada"
+        - "Retinopatia Proliferativa Grave"
+
+  - coluna_destino: "ds_conduta_clinica"
+    tipo_dado: "String"
+    descricao: "Desfecho regulatório pós-telediagnóstico."
+    regras_validacao:
+      obrigatorio_not_null: true
+      valores_permitidos:
+        - "Acompanhamento na APS"
+        - "Encaminhamento Especializado (Cirúrgico)"
+        - "Encaminhamento Urgência"
+        - "Reavaliação em 12 Meses"
+
+# ------------------------------------------------------------------------------
+# 4. POLÍTICA DE QUALIDADE
+# ------------------------------------------------------------------------------
+politica_qualidade_dados:
+  acao_em_caso_de_erro: "Interromper Pipeline"
+  pasta_quarentena: "${LAKEHOUSE_QUARANTINE_PATH}/teleoftalmo/"
+  limiar_tolerancia_erros_percentual: 0.5
+  regras_tratamento_erros_pipeline:
+    - condicao: "ds_conduta_clinica IS NULL"
+      acao: "Preencher com 'Conduta Pendente' para direcionamento à auditoria"

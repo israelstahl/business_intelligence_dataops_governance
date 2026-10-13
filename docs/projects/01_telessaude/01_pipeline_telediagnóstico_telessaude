@@ -1,0 +1,508 @@
+// =============================================================================
+// REPOSITÓRIO: business_intelligence_dataops_governance
+// ARQUIVO: src/analytics/qlik/01_pipeline_telediagnostico_gold.qvs
+// ARQUITETURA: Fact Constellation (Esquema Galáxia) - Camada Gold
+// RESPONSÁVEL: Israel Stahl (Analytics Engineering & Data Governance)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// SEÇÃO 01: VARIÁVEIS DE AMBIENTE E CONEXÕES PARAMETRIZADAS
+// -----------------------------------------------------------------------------
+// Substituição de paths absolutos e bibliotecas locais por conexões parametrizadas
+SET vG.PathRaw    = 'lib://DATA_LAKE_CORE/Raw/sus_digital';
+SET vG.PathSilver = 'lib://DATA_LAKE_CORE/Silver';
+SET vG.PathGold   = 'lib://DATA_LAKE_CORE/Gold';
+
+// -----------------------------------------------------------------------------
+// SEÇÃO 02: MAPEAMENTOS SEMÂNTICOS E DICIONÁRIOS (DUAL E TAXONOMIAS)
+// -----------------------------------------------------------------------------
+
+// 1. Mapeamento Dual para Prioridade Clínica (ECG)
+// Desafio de Negócio: Exames urgentes precisam de ordenação prioritária em tela
+// sem perder o rótulo textual legível para os reguladores estaduais.
+Map_Prioridade_Dual:
+MAPPING LOAD 
+    Upper(Text(Trim(Codigo))) AS Codigo, 
+    Dual(Texto, ValorNum) 
+INLINE [
+    Codigo, Texto, ValorNum
+    URGENTE, URGÊNCIA, 1
+    PREFERENCIAL, PREFERENCIAL, 2
+    ELETIVA, ELETIVO, 3
+    URGÊNCIA, URGÊNCIA, 1
+    ELETIVO, ELETIVO, 3
+];
+
+// 2. Mapeamento de Código IBGE da UF para Sigla Oficial
+// Necessário para padronização de chaves de cruzamento com o CNES do Ministério da Saúde.
+Map_IBGE_UF:
+MAPPING LOAD * INLINE [
+    CO_UF, Sigla
+    11, RO, 12, AC, 13, AM, 14, RR, 15, PA, 16, AP, 17, TO,
+    21, MA, 22, PI, 23, CE, 24, RN, 25, PB, 26, PE, 27, AL, 28, SE, 29, BA,
+    31, MG, 32, ES, 33, RJ, 35, SP,
+    41, PR, 42, SC, 43, RS,
+    50, MS, 51, MT, 52, GO, 53, DF
+];
+
+// -----------------------------------------------------------------------------
+// SEÇÃO 03: TABELA FATO CONCATENADA - PRODUÇÃO DE TELEDIAGNÓSTICO
+// -----------------------------------------------------------------------------
+// Fato central que unifica quatro modalidades de exames com granularidades distintas.
+
+// --- 3.1 Carga: Eletrocardiograma - ECG (Fonte: Agregada Mensal) ---
+Fato_Producao_Exames:
+LOAD
+    Timestamp(FileTime(), 'DD/MM/YYYY hh:mm') AS _dt_arquivo_origem,
+    
+    // Classificador Canônico
+    'ECG'                                     AS ds_tipo_exame,
+
+    // Chave de Competência Territorial
+    Upper(Trim(municipio)) & '|' & Upper(Trim(estabelecimento)) & '|' & 
+    Date(MonthStart(Alt(Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/M'), Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/MM'), Num([inclusao_servidor: Mês]))), 'YYYYMM') AS sk_producao_competencia,
+    
+    // Chave de Associação com o Cadastro Geral (CNES)
+    Upper(Trim(sigla_uf)) & '|' & Upper(Trim(estabelecimento))  AS sk_estabelecimento_cnes,
+    
+    // Chave de Associação com o Marco de Ativação do Município
+    Upper(Trim(municipio)) & '|ECG'                             AS sk_implantacao,
+
+    // Atributos Territoriais
+    Upper(Trim(sigla_uf))                                       AS sg_uf,
+    Upper(Trim(municipio))                                      AS ds_municipio,
+    Upper(Trim(estabelecimento))                                AS ds_estabelecimento,
+    
+    // Regra Léxica de Contingência: Classifica estabelecimentos ausentes no cadastro oficial
+    If(WildMatch(estabelecimento, '*UBS*', '*USF*', '*ESF*', '*POSTO DE SAUDE*', '*UNIDADE BASICA*', '*CENTRO DE SAUDE*'), 'Atenção Primária',
+        If(WildMatch(estabelecimento, '*CEM*', '*CENTRO DE ESPECIALIDADES*', '*AMBULATORIO*', '*POLICLINICA*', '*CLINICA*', '*CEO*'), 'Ambulatorial',
+            If(WildMatch(estabelecimento, '*HOSP*', '*HOSPITAL*', '*SANTA CASA*', '*HR*', '*HC*', '*MATERNIDADE*', '*UPAM*', '*PRONTO SOCORRO*'), 'Hospitalar',
+                'Não Classificado'
+            )
+        )
+    ) AS ds_categoria_contingencia,
+
+    // Prioridade com Ordenação Numérica Dual
+    ApplyMap('Map_Prioridade_Dual', Upper(Trim(prioridade_exame)), Dual('NÃO SE APLICA', 9)) AS tp_prioridade_exame,
+    'DADO AGREGADO'                                             AS ds_paciente, 
+    
+    // Normalização Temporal Conforme
+    Date(MonthStart(Alt(Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/M'), Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/MM'), Num([inclusao_servidor: Mês]))), 'MM/YYYY') AS dt_competencia,
+    Year(MonthStart(Alt(Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/M'), Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/MM'), Num([inclusao_servidor: Mês])))) AS nu_ano_competencia,
+    Dual(Month(MonthStart(Alt(Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/M'), Num([inclusao_servidor: Mês])))), Num(Month(MonthStart(Alt(Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/M'), Num([inclusao_servidor: Mês])))))) AS ds_mes_competencia,
+    Date(MonthStart(Alt(Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/M'), Num([inclusao_servidor: Mês]))), 'DD/MM/YYYY') AS dt_exame,
+    Date(MonthStart(Alt(Date#(Text(Trim([inclusao_servidor: Mês])), 'YYYY/M'), Num([inclusao_servidor: Mês]))), 'DD/MM/YYYY') AS dt_referencia_global,
+    
+    // Métrica Harmônica de Produção
+    Alt(Num([Soma de quantidade]), 0)                           AS qtd_exames
+
+FROM [$(vG.PathRaw)/telediagnostico_ecg_producao_raw.xlsx]
+(ooxml, embedded labels, table is [Resultado da consulta])
+WHERE Alt(Num([Soma de quantidade]), 0) > 0;
+
+// --- 3.2 Carga: Espirometria (Fonte: Unitária / Transacional) ---
+CONCATENATE (Fato_Producao_Exames)
+LOAD
+    Timestamp(FileTime(), 'DD/MM/YYYY hh:mm')                   AS _dt_arquivo_origem,
+    'Espirometria'                                              AS ds_tipo_exame,
+
+    Upper(Trim(municipio)) & '|' & Upper(Trim(estabelecimento)) & '|' & 
+    Date(MonthStart(Alt(Date#(Text(Trim(inclusao)), 'DD/MM/YYYY'), Date#(Text(Trim(inclusao)), 'D/M/YYYY'), Num(inclusao))), 'YYYYMM') AS sk_producao_competencia,
+    
+    Upper(Trim(uf)) & '|' & Upper(Trim(estabelecimento))        AS sk_estabelecimento_cnes,
+    Upper(Trim(municipio)) & '|Espirometria'                    AS sk_implantacao,
+
+    Upper(Trim(uf))                                             AS sg_uf,
+    Upper(Trim(municipio))                                      AS ds_municipio,
+    Upper(Trim(estabelecimento))                                AS ds_estabelecimento,
+    
+    If(WildMatch(estabelecimento, '*UBS*', '*USF*', '*ESF*', '*POSTO DE SAUDE*', '*UNIDADE BASICA*', '*CENTRO DE SAUDE*'), 'Atenção Primária',
+        If(WildMatch(estabelecimento, '*CEM*', '*CENTRO DE ESPECIALIDADES*', '*AMBULATORIO*', '*POLICLINICA*', '*CLINICA*', '*CEO*'), 'Ambulatorial',
+            If(WildMatch(estabelecimento, '*HOSP*', '*HOSPITAL*', '*SANTA CASA*', '*HR*', '*HC*', '*MATERNIDADE*', '*UPAM*', '*PRONTO SOCORRO*'), 'Hospitalar',
+                'Não Classificado'
+            )
+        )
+    ) AS ds_categoria_contingencia,
+
+    Dual('NÃO APLICÁVEL', 9)                                    AS tp_prioridade_exame,
+    'DADO ANONIMIZADO'                                          AS ds_paciente, // Anonimização LGPD
+
+    Date(MonthStart(Alt(Date#(Text(Trim(inclusao)), 'DD/MM/YYYY'), Date#(Text(Trim(inclusao)), 'D/M/YYYY'), Num(inclusao))), 'MM/YYYY') AS dt_competencia,
+    Year(Alt(Date#(Text(Trim(inclusao)), 'DD/MM/YYYY'), Date#(Text(Trim(inclusao)), 'D/M/YYYY'), Num(inclusao)))               AS nu_ano_competencia,
+    Dual(Month(Alt(Date#(Text(Trim(inclusao)), 'DD/MM/YYYY'), Num(inclusao))), Num(Month(Alt(Date#(Text(Trim(inclusao)), 'DD/MM/YYYY'), Num(inclusao))))) AS ds_mes_competencia,
+    Date(Alt(Date#(Text(Trim(inclusao)), 'DD/MM/YYYY'), Date#(Text(Trim(inclusao)), 'D/M/YYYY'), Num(inclusao)), 'DD/MM/YYYY') AS dt_exame,
+    Date(Alt(Date#(Text(Trim(inclusao)), 'DD/MM/YYYY'), Date#(Text(Trim(inclusao)), 'D/M/YYYY'), Num(inclusao)), 'DD/MM/YYYY') AS dt_referencia_global,
+    
+    1                                                           AS qtd_exames // Granularidade transacional normalizada
+
+FROM [$(vG.PathRaw)/telediagnostico_espirometria_raw.xlsx]
+(ooxml, embedded labels, table is [Resultado da consulta]);
+
+// --- 3.3 Carga: Teleoftalmologia - Produção (Fonte: API / Parquet) ---
+CONCATENATE (Fato_Producao_Exames)
+LOAD
+    Timestamp(FileTime(), 'DD/MM/YYYY hh:mm')                   AS _dt_arquivo_origem,
+    Id                                                          AS cd_atendimento_oftalmo,
+    'Oftalmologia'                                              AS ds_tipo_exame,
+
+    Upper(Trim(Municipio)) & '|' & 
+    If(Len(Trim(EstabelecimentoCNES)) > 0 and EstabelecimentoCNES <> '0', 
+       Upper(Trim(EstabelecimentoCNES)), 'NÃO INFORMADO') & '|' & 
+    Date(MonthStart(_dt_temp), 'YYYYMM')                        AS sk_producao_competencia,
+
+    If(Len(Trim(EstabelecimentoCNES)) > 0 and EstabelecimentoCNES <> '0',
+       'MS|' & Text(Num(Trim(EstabelecimentoCNES), '0000000')),
+       'MS|NÃO INFORMADO'
+    )                                                           AS sk_estabelecimento_cnes,
+
+    Upper(Trim(Municipio)) & '|Oftalmologia'                    AS sk_implantacao,
+    'MS'                                                        AS sg_uf,
+    Upper(Trim(Municipio))                                      AS ds_municipio,
+    If(Len(Trim(EstabelecimentoNome)) > 0, 
+       Upper(Trim(EstabelecimentoNome)), 'NÃO INFORMADO')       AS ds_estabelecimento,
+
+    'Não Classificado'                                          AS ds_categoria_contingencia,
+    Dual('NÃO APLICÁVEL', 9)                                    AS tp_prioridade_exame,
+    'DADO ANONIMIZADO'                                          AS ds_paciente, // Anonimização LGPD
+
+    Date(MonthStart(_dt_temp), 'MM/YYYY')                       AS dt_competencia,
+    Year(_dt_temp)                                              AS nu_ano_competencia,
+    Dual(Month(_dt_temp), Num(Month(_dt_temp)))                 AS ds_mes_competencia,
+    Date(_dt_temp, 'DD/MM/YYYY')                                AS dt_exame,
+    Date(_dt_temp, 'DD/MM/YYYY')                                AS dt_referencia_global,
+    1                                                           AS qtd_exames,
+
+    id_fonte                                                    AS oftalmo_id_fonte,
+    arquivo_origem                                              AS oftalmo_arquivo_origem,
+    data_ingestao                                               AS oftalmo_data_ingestao
+;
+// Preceding load para cálculo seguro de data
+LOAD
+    *,
+    Date(Floor(Alt(
+        Date#(Left(Text(Trim(DataCadastro)), 10), 'YYYY-MM-DD'),
+        Date#(Left(Text(Trim(DataCadastro)), 10), 'DD/MM/YYYY'),
+        Timestamp#(Text(Trim(DataCadastro)), 'YYYY-MM-DD hh:mm:ss'),
+        DataCadastro
+    ))) AS _dt_temp
+FROM [$(vG.PathRaw)/parquet/raw_oftalmologia_api.parquet]
+(parquet);
+
+// --- 3.4 Carga: Teledermatologia - Produção (Fonte: Exportação Operacional) ---
+CONCATENATE (Fato_Producao_Exames)
+LOAD
+    Timestamp(FileTime(), 'DD/MM/YYYY hh:mm')                   AS _dt_arquivo_origem,
+    'Dermatologia'                                              AS ds_tipo_exame,
+
+    Upper(Trim([Exame: município])) & '|' & Upper(Trim([Exame: instituição])) & '|' & 
+    Date(MonthStart(Date#(Left(Text(Trim([Data do exame])), 10), 'DD/MM/YYYY')), 'YYYYMM') AS sk_producao_competencia,
+
+    Upper(Trim([Exame: UF])) & '|' & Upper(Trim([Exame: instituição])) AS sk_estabelecimento_cnes,
+    [Exame: número do laudo]                                    AS cd_laudo_dermato,
+    Upper(Trim([Exame: UF]))                                    AS sg_uf,
+    Upper(Trim([Exame: município]))                             AS ds_municipio,
+    Upper(Trim([Exame: instituição]))                           AS ds_estabelecimento,
+    Upper(Trim([Exame: município])) & '|Dermatologia'           AS sk_implantacao,
+
+    If(WildMatch([Exame: instituição], '*UBS*', '*USF*', '*ESF*', '*POSTO DE SAUDE*', '*UNIDADE BASICA*'), 'Atenção Primária',
+        If(WildMatch([Exame: instituição], '*CEM*', '*CENTRO DE ESPECIALIDADES*', '*AMBULATORIO*'), 'Ambulatorial',
+            If(WildMatch([Exame: instituição], '*HOSP*', '*HOSPITAL*', '*SANTA CASA*', '*HR*'), 'Hospitalar',
+                'Não Classificado'
+            )
+        )
+    ) AS ds_categoria_contingencia,
+
+    Dual('NÃO APLICÁVEL', 9)                                    AS tp_prioridade_exame,
+    'DADO ANONIMIZADO'                                          AS ds_paciente, // Anonimização LGPD
+
+    Date(MonthStart(Date#(Left(Text(Trim([Data do exame])), 10), 'DD/MM/YYYY')), 'MMM/YYYY') AS dt_competencia,
+    Date(Date#(Left(Text(Trim([Data do exame])), 10), 'DD/MM/YYYY'), 'DD/MM/YYYY')           AS dt_exame,
+    Date(Date#(Left(Text(Trim([Data do exame])), 10), 'DD/MM/YYYY'), 'DD/MM/YYYY')           AS dt_referencia_global,
+    Year(Date#(Left(Text(Trim([Data do exame])), 10), 'DD/MM/YYYY'))                         AS nu_ano_competencia,
+    Dual(Month(Date#(Left(Text(Trim([Data do exame])), 10), 'DD/MM/YYYY')), Num(Month(Date#(Left(Text(Trim([Data do exame])), 10), 'DD/MM/YYYY')))) AS ds_mes_competencia,
+    Alt(Num([Quantidade de exames]), 1)                         AS qtd_exames
+
+FROM [$(vG.PathRaw)/telediagnostico_dermatologia_raw.xlsx]
+(ooxml, embedded labels, table is [Dados Exportados])
+WHERE Match(Upper(Trim([Exame: UF])), 'MS', 'MATO GROSSO DO SUL');
+
+// -----------------------------------------------------------------------------
+// SEÇÃO 04: DIMENSÕES CLÍNICAS SATÉLITES (DESACOPLAMENTO CLÍNICO)
+// -----------------------------------------------------------------------------
+
+// --- 4.1 Dimensão Especializada: Teleoftalmologia ---
+// Isola variáveis patológicas e desfechos assistenciais da tabela Fato
+Dim_Oftalmologia_Clinica:
+LOAD
+    Id                                                          AS cd_atendimento_oftalmo,
+    Id                                                          AS oftalmo_id_atendimento,
+    LaudoId                                                     AS oftalmo_laudo_id,
+    LaudoParecer                                                AS oftalmo_laudo_parecer,
+    DataHoraLaudo                                               AS oftalmo_dt_hora_laudo,
+    LaudadorNome                                                AS oftalmo_laudador_nome,
+    CampanhaNome                                                AS oftalmo_campanha_nome,
+    DataCadastro                                                AS oftalmo_dt_cadastro_origem,
+
+    // Proteção de Dados Sensíveis (LGPD) via Hashing Criptográfico Unidirecional
+    Hash256(Trim(PacienteCpf))                                  AS oftalmo_paciente_cpf_hash,
+    Hash256(Trim(PacienteCartaoSus))                            AS oftalmo_paciente_cns_hash,
+    PacienteSexo                                                AS oftalmo_paciente_sexo,
+
+    // Diagnósticos Oftalmológicos Estratificados
+    ImpressaoDiagnosticaNormal                                  AS oftalmo_diag_normal,
+    Catarata                                                    AS oftalmo_catarata,
+    CatarataOlhoDireito                                         AS oftalmo_catarata_od,
+    CatarataOlhoEsquerdo                                        AS oftalmo_catarata_oe,
+    Glaucoma                                                    AS oftalmo_glaucoma,
+    SuspeitaGlaucomaEscavacaoOlhoDireito                        AS oftalmo_suspeita_glaucoma_escavacao_od,
+    SuspeitaGlaucomaEscavacaoOlhoEsquerdo                       AS oftalmo_suspeita_glaucoma_escavacao_oe,
+    SuspeitaGlaucomaNervoOptico                                 AS oftalmo_suspeita_glaucoma_nervo_optico,
+    DMRI                                                        AS oftalmo_dmri,
+    RetinopatiaDiabetica                                        AS oftalmo_retinopatia_diabetica,
+    RetinopatiaDiabeticaOlhoDireito                             AS oftalmo_retinopatia_od,
+    RetinopatiaDiabeticaOlhoEsquerdo                            AS oftalmo_retinopatia_oe,
+    Pterigio                                                    AS oftalmo_pterigio,
+    OutrasDoencas                                               AS oftalmo_outras_doencas,
+
+    // Condutas Clínicas e Desfechos Regulatórios
+    CondutaOrientacaoCuidadosOculares                            AS oftalmo_conduta_orientacao,
+    CondutaEncaminhamentoAvaliacaoOftalmologica                 AS oftalmo_conduta_encaminhamento,
+    CondutaLaser                                                AS oftalmo_conduta_laser,
+    CondutaAngiogenico                                          AS oftalmo_conduta_antiangiogenico,
+    CondutaTratamentoClinico                                    AS oftalmo_conduta_tratamento_clinico,
+    CondutaExameComplementar                                    AS oftalmo_conduta_exame_comp,
+    CondutaCirurgiaComplementar                                 AS oftalmo_conduta_cirurgia_comp,
+    CondutaUrgencia                                             AS oftalmo_conduta_urgencia,
+
+    // Fatores de Risco e Comorbidades
+    Hipertenso                                                  AS oftalmo_comorb_hipertensao,
+    DiabetesMellitusI                                           AS oftalmo_comorb_dm1,
+    DiabetesMellitusII                                          AS oftalmo_comorb_dm2,
+    UsaInsulina                                                 AS oftalmo_comorb_insulina,
+    Colesterol                                                  AS oftalmo_comorb_colesterol,
+    Fumante                                                     AS oftalmo_comorb_tabagismo,
+
+    EstabelecimentoNome                                         AS oftalmo_estabelecimento_nome,
+    EstabelecimentoCNES                                         AS oftalmo_estabelecimento_cnes,
+    EstabelecimentoMunicipio                                    AS oftalmo_estabelecimento_municipio
+
+FROM [$(vG.PathRaw)/parquet/raw_oftalmologia_api.parquet]
+(parquet);
+
+// --- 4.2 Dimensão Especializada: Teledermatologia ---
+Dim_Dermatologia_Clinica:
+LOAD
+    [Exame: número do laudo]                                    AS cd_laudo_dermato,
+    Hash256(Trim([Paciente: CNS]))                              AS nu_cns_paciente_hash, // LGPD Hash
+    [Dermatose Principal]                                       AS ds_dermatose_principal,
+    [Classificação de Risco Principal]                          AS ds_classificacao_risco,
+    [CID10 - Categoria]                                         AS cd_cid10_categoria,
+    [Lesão Elementar]                                           AS ds_lesao_elementar,
+    [História Mórbida Pregressa (HMP)]                          AS flg_hmp,
+    [HMP - Câncer de Pele]                                      AS flg_cancer_pele_hmp,
+    [Tabagismo]                                                 AS ds_tabagismo,
+    [Fototipo]                                                  AS ds_fototipo,
+    [Horas por Dia]                                             AS nu_horas_sol_dia,
+    [Exame: situação]                                           AS st_situacao_laudo,
+    [Paciente: idade]                                           AS nu_idade_paciente,
+    [Paciente: sexo]                                            AS ds_sexo_paciente,
+    [Tempo Doença]                                              AS ds_tempo_doenca,
+    [Grupo Dermatose Principal]                                 AS ds_grupo_dermatose
+
+FROM [$(vG.PathRaw)/telediagnostico_dermatologia_raw.xlsx]
+(ooxml, embedded labels, table is [Dados Exportados]);
+
+// -----------------------------------------------------------------------------
+// SEÇÃO 05: DIMENSÕES CADASTRAIS (CNES E CONTROLE DE IMPLANTAÇÃO)
+// -----------------------------------------------------------------------------
+
+// --- 5.1 Dimensão Cadastral de Estabelecimentos de Saúde ---
+Dim_Estabelecimentos:
+LOAD 
+    ApplyMap('Map_IBGE_UF', CO_UF) & '|' & Upper(Trim(NO_FANTASIA)) AS sk_estabelecimento_cnes,
+    CO_CNES,
+    Upper(Trim(NO_FANTASIA))                                    AS ds_estabelecimento_oficial,
+    Upper(Trim(NO_RAZAO_SOCIAL))                                AS ds_razao_social,
+    TP_UNIDADE                                                  AS co_tipo_unidade,
+    
+    // Taxonomia Oficial do Ministério da Saúde
+    If(Match(TP_UNIDADE, 1, 2, 32, 71, 72, 73), 'Atenção Primária',
+        If(Match(TP_UNIDADE, 4, 22, 36, 39, 40), 'Ambulatorial',
+            If(Match(TP_UNIDADE, 5, 7, 62), 'Hospitalar',
+                'Outros'
+            )
+        )
+    ) AS ds_categoria_estabelecimento
+
+FROM [$(vG.PathRaw)/CNES/cnes_estabelecimentos.csv]
+(txt, utf8, embedded labels, delimiter is ';');
+
+// --- 5.2 Dimensão de Marco Temporal de Implantação ---
+Dim_Implantacao:
+LOAD
+    Timestamp(FileTime(), 'DD/MM/YYYY hh:mm')                   AS _dt_arquivo_origem,
+    Upper(Trim(Municipio)) & '|' & 
+    If(WildMatch(Serviço, '*ECG*'), 'ECG',
+        If(WildMatch(Serviço, '*Espirometria*'), 'Espirometria',
+            If(WildMatch(Serviço, '*Oftalmologia*'), 'Oftalmologia',
+                If(WildMatch(Serviço, '*Dermatologia*'), 'Dermatologia', 
+                    Trim(Serviço)
+                )
+            )
+        )
+    )                                                           AS sk_implantacao,
+    
+    Date(Alt(Date#(Text(Trim([Data de Implantação])), 'DD/MM/YYYY'), Num([Data de Implantação])), 'DD/MM/YYYY') AS dt_implantacao,
+    [Ano de Implantação]                                        AS nu_ano_implantacao,
+    [Origem]                                                    AS ds_origem_implantacao
+
+FROM [$(vG.PathRaw)/telediagnostico_implantacao_por_municipio.xlsx]
+(ooxml, embedded labels, table is [Banco]);
+
+// -----------------------------------------------------------------------------
+// SEÇÃO 06: TABELA FATO - SESSÕES DE TELEATENDIMENTO (MULTIFONTE)
+// -----------------------------------------------------------------------------
+// Unificação de plataformas de teleconsultoria e interconsulta clínica.
+
+// --- 6.1 Carga: Núcleo Fiocruz (Transacional) ---
+Fato_Atendimentos_Consolidada:
+LOAD
+    Timestamp(FileTime(), 'DD/MM/YYYY hh:mm')                   AS _dt_arquivo_origem,
+    sk_atendimento,
+    tp_fonte,
+    sk_ano_referencia,
+    ds_mes_referencia,
+    Date(Alt(Date#(Text(Trim(dt_atendimento)), 'YYYY-MM-DD'), Date#(Text(Trim(dt_atendimento)), 'DD/MM/YYYY'), Num(dt_atendimento)), 'DD/MM/YYYY') AS dt_referencia_global,
+    ds_municipio                                                AS ds_municipio_tele,
+    ds_categoria_especialidade                                  AS ds_categoria_especialidade_tele,
+    tp_fornecedor                                               AS tp_fornecedor_tele,
+    ds_localidade                                               AS ds_localidade_tele,
+    ds_estabelecimento                                          AS ds_estabelecimento_tele,
+    tp_modalidade,                                              
+    tp_status,
+    tp_classificacao_conclusao,
+    1                                                           AS qtd_registros 
+FROM [$(vG.PathSilver)/teleatendimentos/teleatendimentos_silver.parquet]
+(parquet);
+
+// --- 6.2 Carga: Concatenação Projeto Einstein / PROADI-SUS (Agregado) ---
+CONCATENATE(Fato_Atendimentos_Consolidada)
+LOAD
+    Timestamp(FileTime(), 'DD/MM/YYYY hh:mm')                   AS _dt_arquivo_origem,
+    tp_fonte_einstein                                           AS tp_fonte,
+    sk_ano_referencia_einstein                                  AS sk_ano_referencia,
+    ds_mes_referencia_einstein                                  AS ds_mes_referencia,
+    Date(MakeDate(sk_ano_referencia_einstein, Num(ds_mes_referencia_einstein), 1), 'DD/MM/YYYY') AS dt_referencia_global,
+    ds_municipio_einstein                                       AS ds_municipio_tele,
+    ds_categoria_especialidade_einstein                         AS ds_categoria_especialidade_tele,
+    tp_fornecedor_einstein                                      AS tp_fornecedor_tele,
+    ds_localidade_einstein                                      AS ds_localidade_tele,
+    'Teleinterconsulta'                                         AS tp_modalidade,
+    'Atendido'                                                  AS tp_status,
+    'Com atendimento'                                           AS tp_classificacao_conclusao,
+    qtd_registros_einstein                                      AS qtd_registros 
+FROM [$(vG.PathSilver)/teleatendimentos/einstein_silver.parquet]
+(parquet);
+
+// --- 6.3 Carga: Concatenação Teleconsultorias Síncronas/Assíncronas ---
+CONCATENATE(Fato_Atendimentos_Consolidada)
+LOAD
+    Timestamp(FileTime(), 'DD/MM/YYYY hh:mm')                   AS _dt_arquivo_origem,
+    sk_atendimento,
+    tp_fonte,
+    sk_ano_referencia,
+    ds_mes_referencia,
+    Date(Alt(Date#(Text(Trim(dt_atendimento)), 'YYYY-MM-DD'), Date#(Text(Trim(dt_atendimento)), 'DD/MM/YYYY'), Num(dt_atendimento)), 'DD/MM/YYYY') AS dt_referencia_global,
+    dt_atendimento,
+    ds_municipio                                                AS ds_municipio_tele,
+    ds_categoria_especialidade                                  AS ds_categoria_especialidade_tele,
+    tp_fornecedor                                               AS tp_fornecedor_tele,
+    ds_localidade                                               AS ds_localidade_tele,
+    ds_estabelecimento                                          AS ds_estabelecimento_tele,
+    
+    // Normalização Canônica da Modalidade
+    If(WildMatch(tp_consulta, '*Assíncrona*') or Alt(qtd_teleconsultoria_assincrona, 0) > 0, 
+        'Teleconsultoria Assíncrona',
+    If(WildMatch(tp_consulta, '*Síncrona*') or Alt(qtd_teleconsultoria_sincrona, 0) > 0, 
+        'Teleconsultoria Síncrona', 
+        'Teleconsultoria'))                                     AS tp_modalidade,
+        
+    If(Len(Trim(tp_status)) > 0, tp_status, 'Concluído')        AS tp_status,
+    If(Len(Trim(tp_classificacao_conclusao)) > 0, tp_classificacao_conclusao, 'Com atendimento') AS tp_classificacao_conclusao,
+    Alt(qtd_registros, 1)                                       AS qtd_registros
+FROM [$(vG.PathSilver)/teleconsultorias/teleconsultorias_silver.parquet]
+(parquet);
+
+// -----------------------------------------------------------------------------
+// SEÇÃO 07: CALENDÁRIO MESTRE CONFORME (DIÁRIO / SINGLE SOURCE OF TRUTH)
+// -----------------------------------------------------------------------------
+// Conecta Fato_Producao_Exames e Fato_Atendimentos sem gerar Synthetic Keys.
+
+MinMaxDatas:
+LOAD Min(dt_referencia_global) AS MenorData, Max(dt_referencia_global) AS MaiorData RESIDENT Fato_Producao_Exames;
+
+CONCATENATE (MinMaxDatas)
+LOAD Min(dt_referencia_global) AS MenorData, Max(dt_referencia_global) AS MaiorData RESIDENT Fato_Atendimentos_Consolidada;
+
+LimitesGlobais:
+LOAD Min(MenorData) AS MenorDataGlobal, Max(MaiorData) AS MaiorDataGlobal RESIDENT MinMaxDatas;
+
+LET vDataMin = Num(Peek('MenorDataGlobal', 0, 'LimitesGlobais'));
+LET vDataMax = Num(Peek('MaiorDataGlobal', 0, 'LimitesGlobais'));
+
+DROP TABLES MinMaxDatas, LimitesGlobais;
+
+// Geração do Calendário Contínuo
+Dim_Calendario_Global:
+LOAD
+    Date($(vDataMin) + IterNo() - 1, 'DD/MM/YYYY')                                  AS dt_referencia_global,
+    Year($(vDataMin) + IterNo() - 1)                                                AS [Ano],
+    Dual(Month($(vDataMin) + IterNo() - 1), Num(Month($(vDataMin) + IterNo() - 1))) AS [Mês],
+    Date(MonthStart($(vDataMin) + IterNo() - 1), 'MMM/YYYY')                       AS [Mês/Ano]
+AUTOGENERATE 1
+WHILE $(vDataMin) + IterNo() - 1 <= $(vDataMax);
+
+// -----------------------------------------------------------------------------
+// SEÇÃO 08: AUDITORIA OPERACIONAL E FRESCOR DOS DADOS (DATA FRESHNESS)
+// -----------------------------------------------------------------------------
+// Tabela ilha isolada para exibir o SLA de atualização de cada fonte na interface
+
+Auditoria_Fontes_Dados:
+LOAD DISTINCT
+    'Telediagnóstico'                                          AS ds_macro_area,
+    ds_tipo_exame                                              AS ds_servico_fonte,
+    Timestamp(Max(_dt_arquivo_origem), 'DD/MM/YYYY hh:mm')     AS dt_ultima_modificacao_origem
+RESIDENT Fato_Producao_Exames
+GROUP BY ds_tipo_exame;
+
+CONCATENATE (Auditoria_Fontes_Dados)
+LOAD DISTINCT
+    'Teleatendimento'                                          AS ds_macro_area,
+    tp_fonte                                                   AS ds_servico_fonte,
+    Timestamp(Max(_dt_arquivo_origem), 'DD/MM/YYYY hh:mm')     AS dt_ultima_modificacao_origem
+RESIDENT Fato_Atendimentos_Consolidada
+GROUP BY tp_fonte;
+
+// Limpeza de campos técnicos auxiliares para desoneração de memória RAM
+DROP FIELD _dt_arquivo_origem FROM Fato_Producao_Exames;
+DROP FIELD _dt_arquivo_origem FROM Fato_Atendimentos_Consolidada;
+
+// -----------------------------------------------------------------------------
+// SEÇÃO 09: TAGS, COMENTÁRIOS E PERSISTÊNCIA DA CAMADA GOLD
+// -----------------------------------------------------------------------------
+TAG FIELDS dt_referencia_global WITH '$date';
+TAG FIELDS [Ano] WITH '$year';
+TAG FIELDS [Mês] WITH '$month';
+TAG FIELDS [Mês/Ano] WITH '$yearmonth';
+TAG FIELDS ds_municipio WITH '$municipality', '$text';
+TAG FIELDS qtd_exames WITH '$measure', '$integer';
+
+COMMENT FIELD [sk_producao_competencia] WITH 'Chave Composta: Município | Estabelecimento | AnoMês';
+COMMENT FIELD [sk_estabelecimento_cnes] WITH 'Chave Cadastral: UF | Nome Fantasia ou CNES';
+COMMENT FIELD [ds_tipo_exame]           WITH 'Modalidade do Telediagnóstico (ECG, Espiro, Oftalmo, Dermato)';
+COMMENT FIELD [qtd_exames]             WITH 'Volume consolidado de exames laudados';
+
+// Persistência em QVD Otimizado para alta performance de consumo
+STORE Fato_Producao_Exames          INTO [$(vG.PathGold)/fato_producao_exames_gold.qvd] (qvd);
+STORE Fato_Atendimentos_Consolidada INTO [$(vG.PathGold)/fato_atendimentos_gold.qvd] (qvd);
+STORE Dim_Calendario_Global         INTO [$(vG.PathGold)/dim_calendario_gold.qvd] (qvd);
