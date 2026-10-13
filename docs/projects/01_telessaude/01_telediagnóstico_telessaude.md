@@ -17,8 +17,7 @@ A gestão executiva da Superintendência de Saúde Digital (SSD / SES-MS) enfren
 * **Conflito de Números e Indicadores:** Áreas técnicas e regulatórias apresentavam totais discrepantes de exames para o mesmo período, pois cada sistema proprietário adotava critérios de corte e competências contábeis distintas.
 * **Disparidade de Granularidade das Fontes:** Sistemas de teleconsulta registravam atendimentos evento a evento (granularidade transacional), enquanto os repositórios de laudos de ECG e espirometria disponibilizavam planilhas agregadas por mês/estabelecimento.
 * **Inconsistência Cadastral no CNES:** Unidades de saúde eram cadastradas com nomes divergentes ou sem código CNES válido, impedindo a territorialização e a correlação com a rede oficial do Ministério da Saúde.
-* **Viés da Unidade Centralizadora de Laudo:** A unidade central estadual de telelaudos figurava como executora de dezenas de milhares de exames, mascarando a produtividade real das Unidades Básicas de Saúde (UBS) do interior.
-* **Risco de Abandono ("Cemitério de Dashboards"):** Como comprovado pela literatura técnica (Fardous, 2023), falhas de qualidade ($\beta = -0,31$) e de metadados ($\beta = -0,27$) explicam 52,7% do fracasso de sistemas de BI. Dashboards criados sem governança e sem regras explícitas perdiam rapidamente a confiança dos tomadores de decisão.
+* **Risco de Abandono ("Cemitério de Dashboards"):** Fardous, 2023 define que falhas de qualidade e de metadados explicam 52,7% do fracasso de sistemas de BI. Dashboards criados sem governança e sem regras explícitas perdiam rapidamente a confiança dos tomadores de decisão.
 
 
 
@@ -82,11 +81,11 @@ Diferente de esquemas estrela isolados que geram duplicidade dimensional, a cama
            / (cd_atendimento_oftalmo)
 [Dim_Oftalmologia_Clinica]
 ```
-<!--DIAGRAMA DA MODELAGEM DE DADOS -->
+<!-- DIAGRAMA DA MODELAGEM DE DADOS -->
 <p align="center">
-  <img src="../../docs/architecture/constellation_data_model.png" alt="Modelo Fact Constellation - Camada Gold" width="900">
+  <img src="docs/projects/01_telessaude/constellation_data_model.png" alt="Modelo Fact Constellation - Camada Gold" width="900">
   <br>
-  <em>Figura 2: Arquitetura dimensional Fact Constellation: integração de tabelas fato multi-granulares e dimensões clínicas especializadas[cite: 4].</em>
+  <em>Figura 2: Arquitetura dimensional Fact Constellation: integração de tabelas fato multi-granulares e dimensões clínicas especializadas.</em>
 </p>
 
 ### Por que esta modelagem foi adotada?
@@ -156,11 +155,34 @@ Abaixo está o detalhamento técnico que correlaciona cada desafio enfrentado co
 
 ## 5. Visualização Executiva & Telas do Negócio
 
-<!--PAINEL EM PRODUÇÃO -->
+<!-- PAINÉIS EM PRODUÇÃO -->
+
+<!-- 1. Tela Geral / Executiva -->
 <p align="center">
-  <img src="../../docs/assets/painel_telediagnostico_overview.png" alt="Painel Executivo de Telediagnóstico - CIEGES" width="900">
+  <img src="docs/projects/01_telessaude/dashboard_telessaude.png" alt="Painel Executivo de Telediagnóstico - Visão Geral" width="900">
   <br>
-  <em>Figura 3: Interface executiva em produção: monitoramento da produção global, mapas regionais e estratificação por modalidade[cite: 1].</em>
+  <em>Figura 3.1: Visão Executiva — Monitoramento global de produção de exames, mapa de calor territorial e série temporal.</em>
+</p>
+
+<!-- 2. Tela Analítica 01: Tático e Estratégico -->
+<p align="center">
+  <img src="docs/projects/01_telessaude/dashboard_telessaude_analítico.png" alt="Painel Analítico - Tático e Estratégico" width="900">
+  <br>
+  <em>Figura 3.2: Visão Tático-Estratégica — Detalhamento por município, acompanhamento de metas de implantação e adesão regional.</em>
+</p>
+
+<!-- 3. Tela Analítica 02 -->
+<p align="center">
+  <img src="docs/projects/01_telessaude/dashboard_telessaude_analítico_02.png" alt="Painel Analítico - Clínico e Epidemiológico" width="900">
+  <br>
+  <em>Figura 3.3: Visão Clínico-Epidemiológica — Estratificação de laudos patológicos (oftalmo/dermato) e prioridades clínicas de atendimento.</em>
+</p>
+
+<!-- 4. Tela Analítica 03 -->
+<p align="center">
+  <img src="docs/projects/01_telessaude/dashboard_telessaude_analítico_03.png" alt="Painel Analítico - Operação e Absenteísmo" width="900">
+  <br>
+  <em>Figura 3.4: Visão Operacional — Controle de absenteísmo em teleconsultas e auditoria de frescor dos dados por fornecedor.</em>
 </p>
 
 ### Principais Casos de Uso Habilitados

@@ -54,7 +54,7 @@ A operacionalização das demandas analíticas segue o **Macroprocesso de Solici
 
 ### Raias de Responsabilidade (RACI Integrada)
 * **Demandante / Área de Negócio:** Formaliza a necessidade sanitária e valida os critérios de aceite.
-* **Coordenação CIEGES:** Estabelece prioridades do SUS, pactua patrocínio institucional e soluciona impeditivos institucionais.
+* **Coordenação CIEGES:** Estabelece prioridades com a alta gestão, pactua patrocínio institucional e soluciona impeditivos institucionais.
 * **Especialista em Saúde Digital:** Mapeia os requisitos técnicos, elabora os Contratos de Dados (YAML), conduz a modelagem dimensional e assegura a conformidade com a LGPD e regras de negócio.
 * **Engenharia de Dados (DataOps):** Automatiza as rotinas de ingestão, sanitização, orquestração e testes unitários de schema (Raw $\rightarrow$ Silver), configura API's.
 * **Parceiros Estratégicos (TI):** Gestão de acessos, segurança perimetral e disponibilidade de cluster.
