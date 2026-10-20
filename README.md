@@ -26,7 +26,7 @@ O ecossistema analítico adota o conceito de governança modular. Cada produto d
 
 | Painel / Produto de Dados | Escopo de Inteligência Sanitária | Status do Pipeline | Especificação Técnica |
 | :--- | :--- | :--- | :--- |
-| **01. Telessaúde & Telediagnóstico** | Monitoramento de produção de laudos (ECG, Espirometria, Oftalmo, Dermato) e sessões de teleatendimento com cálculo de absenteísmo. | Em Produção (Gold) | [`docs/projects/01_telessaude.md`](docs/projects/01_telessaude.md) |
+| **01. Telessaúde & Telediagnóstico** | Monitoramento de produção de laudos (ECG, Espirometria, Oftalmo, Dermato) e sessões de teleatendimento com cálculo de absenteísmo. | Em Produção (Gold) | [`docs/projects/01_telessaude.md`](https://github.com/israelstahl/business_intelligence_dataops_governance/tree/80b2af61a3ebc0bc2fe74cd40c8ea2e55a29bfca/docs/projects/01_telessaude) |
 | **02. Segurança do Paciente (NEGESP)** | Gestão e estratificação de severidade de incidentes/eventos adversos em serviços hospitalares e ambulatoriais. | Fase de Contratos (Silver) |
 | **03. Vigilância em Saúde & Endemias** | Detecção precoce de anomalias epidemiológicas, séries temporais e monitoramento de quebra de limites endêmicos. | Fase de Modelagem |
 
