@@ -36,6 +36,7 @@ O ecossistema analítico adota o conceito de governança modular. Cada produto d
 
 A operacionalização das demandas analíticas segue o **Macroprocesso de Solicitação de Dados**, desenhado sob o padrão BPMN para garantir segregação estrita de funções, rastreabilidade e governança de ponta a ponta:
 
+```text
 +------------------------------------------------------------------------------------------------------------------+
 | Áreas de Negócio (Alta Gestão)   [Problema de Negócio]                                                           |
 |                                       │                                                                          |
@@ -51,6 +52,7 @@ A operacionalização das demandas analíticas segue o **Macroprocesso de Solici
 | Analytics Engineering                                                                     ▼                      |
 |                         [Publicação em Produção / BI] <── [Homologação] <── [Modelagem Dimensional Gold]         |
 +------------------------------------------------------------------------------------------------------------------+
+```
 
 ### Raias de Responsabilidade (RACI Integrada)
 * **Demandante / Área de Negócio:** Formaliza a necessidade sanitária e valida os critérios de aceite.
@@ -73,6 +75,7 @@ Pseudonimização e Anonimização: Identificadores pessoais (CPF, CNS do pacien
 
 ## 6. 
 
+```text
 ├── .github/
 ├── contracts/
 │   ├── templates/
@@ -91,3 +94,4 @@ Pseudonimização e Anonimização: Identificadores pessoais (CPF, CNS do pacien
 ├── .gitignore
 ├── LICENSE
 └── README.md                             # Documentação central do ecossistema
+```
